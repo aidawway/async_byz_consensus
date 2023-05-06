@@ -2,26 +2,13 @@ use std::{cmp, collections::HashMap, hash};
 
 use crossbeam::channel::{Receiver, Sender};
 
+use crate::{
+    messaging::{Message, MessageType},
+    util::Broadcastable,
+};
+
 #[derive(Clone)]
-struct Message<T> {
-    message_type: MessageType,
-    value: T,
-    decided: bool,
-}
-
-impl<T> Message<T> {
-    fn new(value: T, decided: bool, message_type: MessageType) -> Message<T> {
-        Message {
-            message_type,
-            value,
-            decided,
-        }
-    }
-}
-
-trait Broadcastable: Clone + Eq + hash::Hash {}
-
-struct BroadcastSender<T> {
+pub struct BroadcastSender<T> {
     senders: Vec<Sender<Message<T>>>,
 }
 
@@ -29,39 +16,33 @@ impl<T> BroadcastSender<T>
 where
     T: Broadcastable,
 {
-    fn send(&self, msg: Message<T>) {
+    pub fn send(&self, msg: Message<T>) {
         for sender in &self.senders {
             sender.send(msg.clone()).unwrap();
         }
     }
 }
 
-#[derive(Clone)]
-enum MessageType {
-    Initiate,
-    Echo,
-    Ready,
-}
-
-fn local_broadcast<T>(
+pub fn local_broadcast<T>(
+    broadcast_source_id: usize, 
     initial_value: T,
     decided: bool,
     process_count: usize,
-    receiver: &Receiver<Message<T>>,
-    sender: &BroadcastSender<T>,
+    receiver: Receiver<Message<T>>,
+    sender: BroadcastSender<T>,
 ) -> T
 where
     T: Broadcastable,
 {
     //Send initial message
-    sender.send(Message::new(initial_value, decided, MessageType::Initiate));
+    sender.send(Message::new(broadcast_source_id, initial_value, decided, MessageType::Initiate));
     broadcast_protocol(process_count, receiver, sender)
 }
 
-fn broadcast_protocol<T>(
+pub fn broadcast_protocol<T>(
     process_count: usize,
-    receiver: &Receiver<Message<T>>,
-    sender: &BroadcastSender<T>,
+    receiver: Receiver<Message<T>>,
+    sender: BroadcastSender<T>,
 ) -> T
 where
     T: Broadcastable,
@@ -79,19 +60,19 @@ where
         faulty_count,
         echo_count,
         ready_count,
-        receiver,
-        sender,
+        &receiver,
+        &sender,
     );
     let ready_count = broadcast_stage_two(
         process_count,
         faulty_count,
         echo_count,
         ready_count,
-        receiver,
-        sender,
+        &receiver,
+        &sender,
     );
 
-    broadcast_stage_three(faulty_count, ready_count, receiver)
+    broadcast_stage_three(faulty_count, ready_count, &receiver)
 }
 
 fn broadcast_stage_one<T>(
@@ -109,6 +90,7 @@ where
 
     while !initialized {
         let Message {
+            broadcast_source_id,
             message_type,
             value,
             decided,
@@ -116,14 +98,23 @@ where
         match message_type {
             MessageType::Initiate => {
                 initialized = true;
-                sender.send(Message::new(value, decided, MessageType::Echo));
+                sender.send(Message::new(
+                    broadcast_source_id,
+                    value,
+                    decided,
+                    MessageType::Echo,
+                ));
             }
             MessageType::Echo => {
                 let entry = echo_count.entry(value.clone()).or_insert(0);
                 *entry += 1;
                 if *entry >= (process_count + faulty_count) / 2 {
                     initialized = true;
-                    sender.send(Message::new(value, decided, MessageType::Echo));
+                    sender.send(Message::new(
+                        broadcast_source_id,value,
+                        decided,
+                        MessageType::Echo,
+                    ));
                 }
             }
             MessageType::Ready => {
@@ -131,7 +122,11 @@ where
                 *entry += 1;
                 if *entry >= (process_count + faulty_count) / 2 {
                     initialized = true;
-                    sender.send(Message::new(value, decided, MessageType::Echo));
+                    sender.send(Message::new(
+                        broadcast_source_id,value,
+                        decided,
+                        MessageType::Echo,
+                    ));
                 }
             }
         }
@@ -155,6 +150,7 @@ where
 
     while !readied {
         let Message {
+            broadcast_source_id,
             message_type,
             value,
             decided,
@@ -166,7 +162,12 @@ where
                 *entry += 1;
                 if *entry >= (process_count + faulty_count) / 2 {
                     readied = true;
-                    sender.send(Message::new(value, decided, MessageType::Echo));
+                    sender.send(Message::new(
+                        broadcast_source_id,
+                        value,
+                        decided,
+                        MessageType::Echo,
+                    ));
                 }
             }
             MessageType::Ready => {
@@ -174,7 +175,12 @@ where
                 *entry += 1;
                 if *entry >= (process_count + faulty_count) / 2 {
                     readied = true;
-                    sender.send(Message::new(value, decided, MessageType::Echo));
+                    sender.send(Message::new(
+                        broadcast_source_id,
+                        value,
+                        decided,
+                        MessageType::Echo,
+                    ));
                 }
             }
         }
@@ -195,6 +201,7 @@ where
 
     while result.is_none() {
         let Message {
+            broadcast_source_id,
             message_type,
             value,
             decided,
