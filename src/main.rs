@@ -11,7 +11,10 @@ mod phase;
 mod round;
 mod util;
 mod validation;
+mod selection_protocol;
 
+
+//TODO do threads terminate after deciding or only at end of the phase? Or only when everyone has decided?
 fn main() {
     let process_count = 40;
 

@@ -21,6 +21,7 @@ pub fn round<T>(
     initial_value: BroadcastValue<T>,
     process_count: usize,
     early_messages: HashMap<usize, Vec<Message<T>>>,
+    previously_validated: ValidatedMessageSet<T>,
     receiver: Receiver<Message<T>>,
     sender: BroadcastSender<T>,
 ) -> (
@@ -77,7 +78,10 @@ where
     // Collect results
     let mut validated = ValidatedMessageSet::new();
     for handle in handles {
-        validated.add(handle.join().unwrap());
+        let accepted = handle.join().unwrap();
+        if previously_validated.validate(round, process_count, &accepted) {
+            validated.add(accepted);
+        }
     }
 
     //Terminate router
