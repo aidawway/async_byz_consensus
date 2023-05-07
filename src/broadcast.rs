@@ -12,30 +12,54 @@ pub struct BroadcastSender<T> {
     senders: Vec<Sender<Message<T>>>,
 }
 
+#[derive(Clone, Debug)]
+pub struct BroadcastValue<T> {
+    pub value: T,
+    pub decided: bool,
+}
+
+
+impl<T> BroadcastValue<T> {
+    pub fn new(value: T, decided: bool) -> BroadcastValue<T> {
+        BroadcastValue { value, decided }
+    }
+}
+
 impl<T> BroadcastSender<T>
 where
     T: Broadcastable,
 {
+
+    pub fn new(senders: Vec<Sender<Message<T>>>) -> BroadcastSender<T> {
+        BroadcastSender { senders }
+    }
+
     pub fn send(&self, msg: Message<T>) {
         for sender in &self.senders {
-            sender.send(msg.clone()).unwrap();
+            sender.send(msg.clone());
         }
     }
 }
 
+
 pub fn local_broadcast<T>(
-    broadcast_source_id: usize, 
-    initial_value: T,
-    decided: bool,
+    round: usize,
+    broadcast_source_id: usize,
+    initial_value: BroadcastValue<T>,
     process_count: usize,
     receiver: Receiver<Message<T>>,
     sender: BroadcastSender<T>,
-) -> T
+) -> BroadcastValue<T>
 where
     T: Broadcastable,
 {
     //Send initial message
-    sender.send(Message::new(broadcast_source_id, initial_value, decided, MessageType::Initiate));
+    sender.send(Message::new(
+        round,
+        broadcast_source_id,
+        initial_value,
+        MessageType::Initiate,
+    ));
     broadcast_protocol(process_count, receiver, sender)
 }
 
@@ -43,7 +67,7 @@ pub fn broadcast_protocol<T>(
     process_count: usize,
     receiver: Receiver<Message<T>>,
     sender: BroadcastSender<T>,
-) -> T
+) -> BroadcastValue<T>
 where
     T: Broadcastable,
 {
@@ -90,48 +114,49 @@ where
 
     while !initialized {
         let Message {
+            round,
             broadcast_source_id,
             message_type,
             value,
-            decided,
         } = receiver.recv().unwrap();
         match message_type {
             MessageType::Initiate => {
                 initialized = true;
                 sender.send(Message::new(
+                    round,
                     broadcast_source_id,
                     value,
-                    decided,
                     MessageType::Echo,
                 ));
             }
             MessageType::Echo => {
-                let entry = echo_count.entry(value.clone()).or_insert(0);
+                let entry = echo_count.entry(value.value.clone()).or_insert(0);
                 *entry += 1;
                 if *entry >= (process_count + faulty_count) / 2 {
                     initialized = true;
                     sender.send(Message::new(
-                        broadcast_source_id,value,
-                        decided,
+                        round,
+                        broadcast_source_id,
+                        value,
                         MessageType::Echo,
                     ));
                 }
             }
             MessageType::Ready => {
-                let entry = ready_count.entry(value.clone()).or_insert(0);
+                let entry = ready_count.entry(value.value.clone()).or_insert(0);
                 *entry += 1;
                 if *entry >= (process_count + faulty_count) / 2 {
                     initialized = true;
                     sender.send(Message::new(
-                        broadcast_source_id,value,
-                        decided,
+                        round,
+                        broadcast_source_id,
+                        value,
                         MessageType::Echo,
                     ));
                 }
             }
         }
     }
-
     (echo_count, ready_count)
 }
 
@@ -150,36 +175,36 @@ where
 
     while !readied {
         let Message {
+            round,
             broadcast_source_id,
             message_type,
             value,
-            decided,
         } = receiver.recv().unwrap();
         match message_type {
             MessageType::Initiate => (), //Discard message
             MessageType::Echo => {
-                let entry = echo_count.entry(value.clone()).or_insert(0);
+                let entry = echo_count.entry(value.value.clone()).or_insert(0);
                 *entry += 1;
                 if *entry >= (process_count + faulty_count) / 2 {
                     readied = true;
                     sender.send(Message::new(
+                        round,
                         broadcast_source_id,
                         value,
-                        decided,
-                        MessageType::Echo,
+                        MessageType::Ready,
                     ));
                 }
             }
             MessageType::Ready => {
-                let entry = ready_count.entry(value.clone()).or_insert(0);
+                let entry = ready_count.entry(value.value.clone()).or_insert(0);
                 *entry += 1;
                 if *entry >= (process_count + faulty_count) / 2 {
                     readied = true;
                     sender.send(Message::new(
+                        round,
                         broadcast_source_id,
                         value,
-                        decided,
-                        MessageType::Echo,
+                        MessageType::Ready,
                     ));
                 }
             }
@@ -193,23 +218,23 @@ fn broadcast_stage_three<T>(
     faulty_count: usize,
     mut ready_count: HashMap<T, usize>,
     receiver: &Receiver<Message<T>>,
-) -> T
+) -> BroadcastValue<T>
 where
     T: Broadcastable,
 {
     let mut result = None;
-
     while result.is_none() {
         let Message {
+            round,
             broadcast_source_id,
             message_type,
             value,
-            decided,
         } = receiver.recv().unwrap();
+
         match message_type {
             MessageType::Initiate | MessageType::Echo => (), //Discard message
             MessageType::Ready => {
-                let entry = ready_count.entry(value.clone()).or_insert(0);
+                let entry = ready_count.entry(value.value.clone()).or_insert(0);
                 *entry += 1;
                 if *entry >= 2 * faulty_count + 1 {
                     result = Some(value);
@@ -217,6 +242,5 @@ where
             }
         }
     }
-
     result.unwrap()
 }
