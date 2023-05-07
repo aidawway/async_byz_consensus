@@ -25,3 +25,13 @@ impl<T> NetworkInfo<T> {
         }
     }
 }
+
+//TODO avoid recalculating
+pub fn faulty_count(process_count: usize) -> usize {
+    // faulty count < process_count / 3
+    if process_count % 3 == 0 {
+        process_count / 3 - 1
+    } else {
+        process_count / 3
+    }
+}

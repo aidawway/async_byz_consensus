@@ -12,7 +12,7 @@ use crossbeam::{
 use crate::{
     broadcast::{self, BroadcastSender, BroadcastValue},
     messaging::Message,
-    util::Broadcastable,
+    util::Broadcastable, validation::ValidatedMessageSet,
 };
 
 pub fn round<T>(
@@ -24,7 +24,7 @@ pub fn round<T>(
     receiver: Receiver<Message<T>>,
     sender: BroadcastSender<T>,
 ) -> (
-    Vec<BroadcastValue<T>>,
+    ValidatedMessageSet<T>,
     HashMap<usize, Vec<Message<T>>>,
     Receiver<Message<T>>,
 )
@@ -75,18 +75,16 @@ where
     });
 
     // Collect results
-    let mut results = Vec::new();
-    let mut max_count = 0;
+    let mut validated = ValidatedMessageSet::new();
     for handle in handles {
-        let process_result = handle.join().unwrap();
-        results.push(process_result);
+        validated.add(handle.join().unwrap());
     }
 
     //Terminate router
     router_sender.send("exit".to_string());
     let (early_messages, receiver) = router_handle.join().unwrap();
 
-    (results, early_messages, receiver)
+    (validated, early_messages, receiver)
 }
 
 fn route_messages<T>(

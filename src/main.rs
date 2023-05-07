@@ -10,6 +10,7 @@ mod messaging;
 mod phase;
 mod round;
 mod util;
+mod validation;
 
 fn main() {
     let process_count = 40;
@@ -28,6 +29,7 @@ fn main() {
         let receiver = receivers.pop().unwrap();
         join_handles.push(thread::spawn(move || {
             byz_protocol::consensus_protocol(
+                // true,
                 random_boolean(),
                 random_boolean,
                 NetworkInfo::new(process_id, senders_clone, receiver),

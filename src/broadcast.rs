@@ -12,7 +12,7 @@ pub struct BroadcastSender<T> {
     senders: Vec<Sender<Message<T>>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, hash::Hash)]
 pub struct BroadcastValue<T> {
     pub value: T,
     pub decided: bool,
