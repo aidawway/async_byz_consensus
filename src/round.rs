@@ -42,25 +42,16 @@ where
         internal_senders.push(s);
 
         let sender_clone = sender.clone();
-        let bcast = Broadcast::new();
+        let bcast = Broadcast::new(round, r, sender.clone(), process_count);
         if index == process_id {
             //Broadcast initialize message
             let initial_value_clone = initial_value.clone();
 
             handles.push(thread::spawn(move || {
-                bcast.local_broadcast(
-                    round,
-                    process_id,
-                    initial_value_clone,
-                    process_count,
-                    r,
-                    sender_clone,
-                )
+                bcast.local_broadcast(process_id, initial_value_clone)
             }))
         } else {
-            handles.push(thread::spawn(move || {
-                bcast.broadcast_protocol(process_count, r, sender_clone)
-            }));
+            handles.push(thread::spawn(move || bcast.broadcast_protocol()));
         }
     }
 

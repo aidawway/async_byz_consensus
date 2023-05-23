@@ -39,78 +39,72 @@ where
     }
 }
 
-pub struct Broadcast {}
-impl Broadcast {
-    pub fn new() -> Broadcast {
-        Broadcast {}
-    }
-    pub fn local_broadcast<T>(
-        &self,
+pub struct Broadcast<T> {
+    receiver: Receiver<Message<T>>,
+    sender: BroadcastSender<T>,
+    round: usize,
+    process_count: usize,
+}
+
+impl<T> Broadcast<T>
+where
+    T: Broadcastable,
+{
+    pub fn new(
         round: usize,
-        broadcast_source_id: usize,
-        initial_value: BroadcastValue<T>,
-        process_count: usize,
         receiver: Receiver<Message<T>>,
         sender: BroadcastSender<T>,
+        process_count: usize,
+    ) -> Broadcast<T> {
+        Broadcast {
+            round, //TODO index from 1 or 0
+            receiver,
+            sender,
+            process_count,
+        }
+    }
+    pub fn local_broadcast(
+        &self,
+        broadcast_source_id: usize,
+        initial_value: BroadcastValue<T>,
     ) -> BroadcastValue<T>
     where
         T: Broadcastable,
     {
         //Send initial message
-        sender.send(Message::new(
-            round,
+        self.sender.send(Message::new(
+            self.round,
             broadcast_source_id,
             initial_value,
             MessageType::Initiate,
         ));
-        self.broadcast_protocol(process_count, receiver, sender)
+        self.broadcast_protocol()
     }
 
-    pub fn broadcast_protocol<T>(
-        &self,
-        process_count: usize,
-        receiver: Receiver<Message<T>>,
-        sender: BroadcastSender<T>,
-    ) -> BroadcastValue<T>
+    pub fn broadcast_protocol(&self) -> BroadcastValue<T>
     where
         T: Broadcastable,
     {
-        let faulty_count = if process_count % 3 == 0 {
-            process_count / 3 - 1
+        let faulty_count = if self.process_count % 3 == 0 {
+            self.process_count / 3 - 1
         } else {
-            process_count / 3
+            self.process_count / 3
         };
         let mut echo_count = HashMap::new();
         let mut ready_count = HashMap::new();
 
-        let (echo_count, ready_count) = self.broadcast_stage_one(
-            process_count,
-            faulty_count,
-            echo_count,
-            ready_count,
-            &receiver,
-            &sender,
-        );
-        let ready_count = self.broadcast_stage_two(
-            process_count,
-            faulty_count,
-            echo_count,
-            ready_count,
-            &receiver,
-            &sender,
-        );
+        let (echo_count, ready_count) =
+            self.broadcast_stage_one(faulty_count, echo_count, ready_count);
+        let ready_count = self.broadcast_stage_two(faulty_count, echo_count, ready_count);
 
-        self.broadcast_stage_three(faulty_count, ready_count, &receiver)
+        self.broadcast_stage_three(faulty_count, ready_count)
     }
 
-    fn broadcast_stage_one<T>(
+    fn broadcast_stage_one(
         &self,
-        process_count: usize,
         faulty_count: usize,
         mut echo_count: HashMap<T, usize>,
         mut ready_count: HashMap<T, usize>,
-        receiver: &Receiver<Message<T>>,
-        sender: &BroadcastSender<T>,
     ) -> (HashMap<T, usize>, HashMap<T, usize>)
     where
         T: Broadcastable,
@@ -123,11 +117,11 @@ impl Broadcast {
                 broadcast_source_id,
                 message_type,
                 value,
-            } = receiver.recv().unwrap();
+            } = self.receiver.recv().unwrap();
             match message_type {
                 MessageType::Initiate => {
                     initialized = true;
-                    sender.send(Message::new(
+                    self.sender.send(Message::new(
                         round,
                         broadcast_source_id,
                         value,
@@ -137,9 +131,9 @@ impl Broadcast {
                 MessageType::Echo => {
                     let entry = echo_count.entry(value.value.clone()).or_insert(0);
                     *entry += 1;
-                    if *entry >= (process_count + faulty_count) / 2 {
+                    if *entry >= (self.process_count + faulty_count) / 2 {
                         initialized = true;
-                        sender.send(Message::new(
+                        self.sender.send(Message::new(
                             round,
                             broadcast_source_id,
                             value,
@@ -150,9 +144,9 @@ impl Broadcast {
                 MessageType::Ready => {
                     let entry = ready_count.entry(value.value.clone()).or_insert(0);
                     *entry += 1;
-                    if *entry >= (process_count + faulty_count) / 2 {
+                    if *entry >= (self.process_count + faulty_count) / 2 {
                         initialized = true;
-                        sender.send(Message::new(
+                        self.sender.send(Message::new(
                             round,
                             broadcast_source_id,
                             value,
@@ -165,14 +159,11 @@ impl Broadcast {
         (echo_count, ready_count)
     }
 
-    fn broadcast_stage_two<T>(
+    fn broadcast_stage_two(
         &self,
-        process_count: usize,
         faulty_count: usize,
         mut echo_count: HashMap<T, usize>,
         mut ready_count: HashMap<T, usize>,
-        receiver: &Receiver<Message<T>>,
-        sender: &BroadcastSender<T>,
     ) -> HashMap<T, usize>
     where
         T: Broadcastable,
@@ -185,15 +176,15 @@ impl Broadcast {
                 broadcast_source_id,
                 message_type,
                 value,
-            } = receiver.recv().unwrap();
+            } = self.receiver.recv().unwrap();
             match message_type {
                 MessageType::Initiate => (), //Discard message
                 MessageType::Echo => {
                     let entry = echo_count.entry(value.value.clone()).or_insert(0);
                     *entry += 1;
-                    if *entry >= (process_count + faulty_count) / 2 {
+                    if *entry >= (self.process_count + faulty_count) / 2 {
                         readied = true;
-                        sender.send(Message::new(
+                        self.sender.send(Message::new(
                             round,
                             broadcast_source_id,
                             value,
@@ -204,9 +195,9 @@ impl Broadcast {
                 MessageType::Ready => {
                     let entry = ready_count.entry(value.value.clone()).or_insert(0);
                     *entry += 1;
-                    if *entry >= (process_count + faulty_count) / 2 {
+                    if *entry >= (self.process_count + faulty_count) / 2 {
                         readied = true;
-                        sender.send(Message::new(
+                        self.sender.send(Message::new(
                             round,
                             broadcast_source_id,
                             value,
@@ -220,11 +211,10 @@ impl Broadcast {
         ready_count
     }
 
-    fn broadcast_stage_three<T>(
+    fn broadcast_stage_three(
         &self,
         faulty_count: usize,
         mut ready_count: HashMap<T, usize>,
-        receiver: &Receiver<Message<T>>,
     ) -> BroadcastValue<T>
     where
         T: Broadcastable,
@@ -236,7 +226,7 @@ impl Broadcast {
                 broadcast_source_id,
                 message_type,
                 value,
-            } = receiver.recv().unwrap();
+            } = self.receiver.recv().unwrap();
 
             match message_type {
                 MessageType::Initiate | MessageType::Echo => (), //Discard message
