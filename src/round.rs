@@ -10,9 +10,10 @@ use crossbeam::{
 };
 
 use crate::{
-    broadcast::{self, BroadcastSender, BroadcastValue},
+    broadcast::{self, Broadcast, BroadcastSender, BroadcastValue},
     messaging::Message,
-    util::Broadcastable, validation::ValidatedMessageSet,
+    util::Broadcastable,
+    validation::ValidatedMessageSet,
 };
 
 pub fn round<T>(
@@ -32,7 +33,6 @@ pub fn round<T>(
 where
     T: Broadcastable,
 {
-
     //Initiate broadcast for each process
     let mut internal_senders = Vec::with_capacity(process_count);
     let mut handles = Vec::with_capacity(process_count);
@@ -42,11 +42,13 @@ where
         internal_senders.push(s);
 
         let sender_clone = sender.clone();
+        let bcast = Broadcast::new();
         if index == process_id {
             //Broadcast initialize message
             let initial_value_clone = initial_value.clone();
+
             handles.push(thread::spawn(move || {
-                broadcast::local_broadcast(
+                bcast.local_broadcast(
                     round,
                     process_id,
                     initial_value_clone,
@@ -57,7 +59,7 @@ where
             }))
         } else {
             handles.push(thread::spawn(move || {
-                broadcast::broadcast_protocol(process_count, r, sender_clone)
+                bcast.broadcast_protocol(process_count, r, sender_clone)
             }));
         }
     }
@@ -99,9 +101,9 @@ fn route_messages<T>(
     internal_senders: Vec<Sender<Message<T>>>,
     terminate_receiver: Receiver<String>,
 ) -> (HashMap<usize, Vec<Message<T>>>, Receiver<Message<T>>)
-where T: Broadcastable
- {
-
+where
+    T: Broadcastable,
+{
     //Forward messages that arrived before the local round started
     if let Some(messages) = early_messages.remove(&round) {
         for message in messages {

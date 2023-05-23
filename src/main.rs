@@ -8,17 +8,17 @@ use crate::broadcast::BroadcastValue;
 
 mod broadcast;
 mod byz_protocol;
-mod faulty;
 mod messaging;
 mod phase;
 mod round;
 mod selection_protocol;
+mod test;
 mod util;
 mod validation;
 
 //TODO do threads terminate after deciding or only at end of the phase? Or only when everyone has decided?
 fn main() {
-    let process_count = 100;
+    let process_count = 40;
     let faulty_count = util::faulty_count(process_count);
     let good_count = process_count - faulty_count;
 
@@ -48,7 +48,7 @@ fn main() {
 
         if let Some(receiver) = receivers.pop() {
             join_handles.push(thread::spawn(move || {
-                faulty::faulty_process(
+                test::repeating_process(
                     BroadcastValue::new(false, true),
                     NetworkInfo::new(process_id, senders_clone, receiver),
                 )
